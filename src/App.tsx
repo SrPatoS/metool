@@ -33,10 +33,12 @@ function FormatSelect({
   formats,
   value,
   onChange,
+  lang,
 }: {
   formats: FormatOption[];
   value: string;
   onChange: (id: string) => void;
+  lang: string;
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -54,7 +56,8 @@ function FormatSelect({
 
   const fmt = (f: FormatOption) => {
     const size = f.filesize ? (f.filesize / 1024 / 1024).toFixed(1) + " MB" : "?";
-    return `${f.resolution} · ${f.ext.toUpperCase()} · ${size}`;
+    const res = f.resolution === "Audio Only" ? (i18n[lang as Language] as any).audio_only : f.resolution;
+    return `${res} · ${f.ext.toUpperCase()} · ${size}`;
   };
 
   return (
@@ -110,45 +113,78 @@ function FormatSelect({
             backdropFilter: "blur(12px)",
             border: "1px solid rgba(255,255,255,0.1)",
             borderRadius: "12px",
-            maxHeight: "220px",
+            maxHeight: "280px",
             overflowY: "auto",
             zIndex: 50,
             boxShadow: "0 -8px 32px rgba(0,0,0,0.5)",
           }}
           className="custom-scroll"
         >
-          {formats.map((f, i) => {
-            const isSelected = f.format_id === value;
-            return (
-              <button
-                key={f.format_id}
-                onClick={() => { onChange(f.format_id); setOpen(false); }}
-                style={{
-                  width: "100%",
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                  padding: "9px 12px",
-                  background: isSelected ? "rgba(255,255,255,0.15)" : "transparent",
-                  border: "none",
-                  borderBottom: i < formats.length - 1 ? "1px solid rgba(255,255,255,0.04)" : "none",
-                  borderRadius: i === 0 ? "12px 12px 0 0" : i === formats.length - 1 ? "0 0 12px 12px" : "0",
-                  color: isSelected ? "#ffffff" : "rgba(255,255,255,0.8)",
-                  fontSize: "0.78rem",
-                  cursor: "pointer",
-                  textAlign: "left",
-                  gap: "8px",
-                }}
-              >
-                <span style={{ fontWeight: isSelected ? 600 : 400 }}>{f.resolution}</span>
-                <span style={{ opacity: 0.45, fontSize: "0.72rem", display: "flex", gap: "6px" }}>
-                  <span>{f.ext.toUpperCase()}</span>
-                  <span>·</span>
-                  <span>{f.filesize ? (f.filesize / 1024 / 1024).toFixed(1) + " MB" : "?"}</span>
-                </span>
-              </button>
-            );
-          })}
+          {(() => {
+            const grouped = formats.reduce((acc, f) => {
+              let cat = "video_other";
+              if (f.height === 0) cat = "audio_formats";
+              else if (f.ext === "mp4") cat = "video_mp4";
+              else if (f.ext === "webm") cat = "video_webm";
+              if (!acc[cat]) acc[cat] = [];
+              acc[cat].push(f);
+              return acc;
+            }, {} as Record<string, FormatOption[]>);
+
+            const order = ["video_mp4", "video_webm", "video_other", "audio_formats"];
+            
+            return order.map(cat => {
+              const group = grouped[cat];
+              if (!group || group.length === 0) return null;
+
+              return (
+                <div key={cat}>
+                  <div style={{ 
+                    padding: "8px 12px 4px", 
+                    fontSize: "0.62rem", 
+                    textTransform: "uppercase", 
+                    letterSpacing: "1px", 
+                    opacity: 0.35, 
+                    fontWeight: 700,
+                    background: "rgba(255,255,255,0.02)"
+                  }}>
+                    {(i18n[lang as Language] as any)[cat]}
+                  </div>
+                  {group.map((f, i) => {
+                    const isSelected = f.format_id === value;
+                    return (
+                      <button
+                        key={f.format_id}
+                        onClick={() => { onChange(f.format_id); setOpen(false); }}
+                        style={{
+                          width: "100%",
+                          display: "flex",
+                          justifyContent: "space-between",
+                          alignItems: "center",
+                          padding: "9px 12px",
+                          background: isSelected ? "rgba(255,255,255,0.15)" : "transparent",
+                          border: "none",
+                          color: isSelected ? "#ffffff" : "rgba(255,255,255,0.8)",
+                          fontSize: "0.78rem",
+                          cursor: "pointer",
+                          textAlign: "left",
+                          gap: "8px",
+                          borderBottom: "1px solid rgba(255,255,255,0.03)"
+                        }}
+                      >
+                        <span style={{ fontWeight: isSelected ? 600 : 400 }}>{f.resolution === "Audio Only" ? (i18n[lang as Language] as any).audio_only : f.resolution}</span>
+                        <span style={{ opacity: 0.45, fontSize: "0.72rem", display: "flex", gap: "6px" }}>
+                          <span>{f.ext.toUpperCase()}</span>
+                          <span>·</span>
+                          <span>{f.filesize ? (f.filesize / 1024 / 1024).toFixed(1) + " MB" : "?"}</span>
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              );
+            });
+          })()}
         </div>
       )}
     </div>
@@ -199,10 +235,10 @@ function Onboarding({ onFinish, lang, setLang }: {
 
   const allInstalled = installed["yt-dlp"] && installed["ffmpeg"];
 
-  const labels: Record<Language, { welcome_title: string; welcome_sub: string; next: string; skip: string; lang_title: string; dep_title: string; dep_sub: string; install_all: string; finish_title: string; finish_sub: string; done: string; installing: string }> = {
-    pt: { welcome_title: "Bem-vindo ao Mevideo!", welcome_sub: "Baixe vídeos de YouTube, Instagram, TikTok e mais de 1.000 sites — direto do seu desktop.", next: "Próximo", skip: "Pular", lang_title: "Escolha seu idioma", dep_title: "Instalar dependências", dep_sub: "O Mevideo usa yt-dlp e ffmpeg para baixar e processar vídeos. Instale agora ou depois.", install_all: "Instalar tudo", finish_title: "Tudo pronto!", finish_sub: "Cole uma URL e baixe seu primeiro vídeo. O app fica na bandeja do sistema.", done: "Começar", installing: "Instalando..." },
-    en: { welcome_title: "Welcome to Mevideo!", welcome_sub: "Download videos from YouTube, Instagram, TikTok and 1,000+ sites — right from your desktop.", next: "Next", skip: "Skip", lang_title: "Choose your language", dep_title: "Install dependencies", dep_sub: "Mevideo uses yt-dlp and ffmpeg to download and process videos. Install now or later.", install_all: "Install all", finish_title: "All set!", finish_sub: "Paste a URL and download your first video. The app lives in the system tray.", done: "Get started", installing: "Installing..." },
-    es: { welcome_title: "¡Bienvenido a Mevideo!", welcome_sub: "Descarga videos de YouTube, Instagram, TikTok y más de 1.000 sitios — desde tu escritorio.", next: "Siguiente", skip: "Omitir", lang_title: "Elige tu idioma", dep_title: "Instalar dependencias", dep_sub: "Mevideo usa yt-dlp y ffmpeg para descargar y procesar videos. Instala ahora o después.", install_all: "Instalar todo", finish_title: "¡Todo listo!", finish_sub: "Pega una URL y descarga tu primer video. La app vive en la bandeja del sistema.", done: "Empezar", installing: "Instalando..." },
+  const labels: Record<Language, { welcome_title: string; welcome_sub: string; next: string; skip: string; lang_title: string; dep_title: string; dep_sub: string; install_all: string; finish_title: string; finish_sub: string; done: string; installing: string; download_video: string; download_audio: string; cancel: string; video_mp4: string }> = {
+    pt: { welcome_title: "Bem-vindo ao Mevideo!", welcome_sub: "Baixe vídeos de YouTube, Instagram, TikTok e mais de 1.000 sites — direto do seu desktop.", next: "Próximo", skip: "Pular", lang_title: "Escolha seu idioma", dep_title: "Instalar dependências", dep_sub: "O Mevideo usa yt-dlp e ffmpeg para baixar e processar vídeos. Instale agora ou depois.", install_all: "Instalar tudo", finish_title: "Tudo pronto!", finish_sub: "Cole uma URL e baixe seu primeiro vídeo. O app fica na bandeja do sistema.", done: "Começar", installing: "Instalando...", download_video: "Baixar Vídeo", download_audio: "Baixar Áudio", cancel: "Cancelar", video_mp4: "Vídeo (MP4)" },
+    en: { welcome_title: "Welcome to Mevideo!", welcome_sub: "Download videos from YouTube, Instagram, TikTok and 1,000+ sites — right from your desktop.", next: "Next", skip: "Skip", lang_title: "Choose your language", dep_title: "Install dependencies", dep_sub: "Mevideo uses yt-dlp and ffmpeg to download and process videos. Install now or later.", install_all: "Install all", finish_title: "All set!", finish_sub: "Paste a URL and download your first video. The app lives in the system tray.", done: "Get started", installing: "Installing...", download_video: "Download Video", download_audio: "Download Audio", cancel: "Cancel", video_mp4: "Video (MP4)" },
+    es: { welcome_title: "¡Bienvenido a Mevideo!", welcome_sub: "Descarga videos de YouTube, Instagram, TikTok y más de 1.000 sitios — desde tu escritorio.", next: "Siguiente", skip: "Omitir", lang_title: "Elige tu idioma", dep_title: "Instalar dependencias", dep_sub: "Mevideo usa yt-dlp y ffmpeg para descargar y procesar videos. Instala ahora o después.", install_all: "Instalar todo", finish_title: "¡Todo listo!", finish_sub: "Pega una URL y descarga tu primer video. La app vive en la bandeja del sistema.", done: "Empezar", installing: "Instalando...", download_video: "Descargar Video", download_audio: "Descargar Audio", cancel: "Cancelar", video_mp4: "Video (MP4)" },
   };
   const l = labels[lang];
 
@@ -366,6 +402,17 @@ function App() {
   const [logs, setLogs] = useState<string[]>(["Mevideo Initialized..."]);
   const [view, setView] = useState<"home" | "config" | "history" | "compress">("home");
   const [isLoading, setIsLoading] = useState<string | null>(null);
+  
+  const handleCancel = async () => {
+    try {
+      await invoke("cancel_process");
+      setIsLoading(null);
+      setStatus(t.cancel || "Cancelado.");
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
   const [videoUrl, setVideoUrl] = useState("");
   const [videoInfo, setVideoInfo] = useState<any>(null);
   const [selectedFormat, setSelectedFormat] = useState<string>("");
@@ -805,6 +852,7 @@ function App() {
                       formats={videoInfo.formats}
                       value={selectedFormat}
                       onChange={setSelectedFormat}
+                      lang={lang}
                     />
                   </div>
                   
@@ -817,10 +865,30 @@ function App() {
                     {isLoading === "video" ? <div className="spinner" /> : (
                       <>
                         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
-                        {t.download_video}
+                        {(videoInfo?.formats as any[])?.find(f => f.format_id === selectedFormat)?.height === 0 ? t.download_audio : t.download_video}
                       </>
                     )}
                   </button>
+
+                  {isLoading === "compress" && (
+                     <button 
+                      className="control-btn" 
+                      onClick={handleCancel}
+                      style={{ width: "100%", marginTop: "6px", height: "36px", borderColor: "rgba(248, 113, 113, 0.3)", color: "#f87171" }}
+                    >
+                      {t.cancel}
+                    </button>
+                  )}
+
+                  {isLoading === "video" && (
+                    <button 
+                      className="control-btn" 
+                      onClick={handleCancel}
+                      style={{ width: "100%", marginTop: "6px", height: "36px", borderColor: "rgba(248, 113, 113, 0.3)", color: "#f87171" }}
+                    >
+                      {t.cancel}
+                    </button>
+                  )}
 
                   {/* Progress bar — visible during and briefly after download */}
                   {downloadProgress !== null && (
@@ -882,9 +950,9 @@ function App() {
                   <div style={{ background: "rgba(255,255,255,0.03)", borderRadius: "12px", padding: "15px", border: "1px solid rgba(255,255,255,0.05)", marginTop: "16px" }}>
                     <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
                       <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-                        <span style={{ fontSize: "0.7rem", opacity: 0.4, textTransform: "uppercase", letterSpacing: "0.5px" }}>{t.format}</span>
+                         <span style={{ fontSize: "0.7rem", opacity: 0.4, textTransform: "uppercase", letterSpacing: "0.5px" }}>{t.format}</span>
                         <div style={{ display: "flex", gap: "6px" }}>
-                          {[{v: "mp4", l: "MP4"}, {v: "webm", l: "WebM"}, {v: "mkv", l: "MKV"}].map(f => (
+                          {[{v: "mp4", l: "MP4"}, {v: "webm", l: "WebM"}, {v: "mkv", l: "MKV"}, {v: "mp3", l: t.mp3_audio}].map(f => (
                             <button 
                               key={f.v} 
                               onClick={() => setCompressFormat(f.v)}
@@ -900,9 +968,9 @@ function App() {
                         <span style={{ fontSize: "0.7rem", opacity: 0.4, textTransform: "uppercase", letterSpacing: "0.5px" }}>{t.target_quality}</span>
                         <div style={{ display: "flex", gap: "6px" }}>
                           {[
-                            {v: "23", l: t.quality_high, e: "~80% original"}, 
-                            {v: "28", l: t.quality_medium, e: "~50% original"}, 
-                            {v: "35", l: t.quality_low, e: "~30% original"}
+                            {v: "23", l: compressFormat === "mp3" ? "320k" : t.quality_high, e: compressFormat === "mp3" ? "Alta fidelidade" : "~80% original"}, 
+                            {v: "28", l: compressFormat === "mp3" ? "192k" : t.quality_medium, e: compressFormat === "mp3" ? "Equilibrado" : "~50% original"}, 
+                            {v: "35", l: compressFormat === "mp3" ? "128k" : t.quality_low, e: compressFormat === "mp3" ? "Econômico" : "~30% original"}
                           ].map(q => (
                             <button 
                               key={q.v} 
@@ -910,26 +978,28 @@ function App() {
                               style={{ flex: 1, padding: "6px", fontSize: "0.75rem", borderRadius: "6px", background: compressQuality === q.v ? "rgba(255, 255, 255, 0.3)" : "rgba(255,255,255,0.05)", border: `1px solid ${compressQuality === q.v ? "#ffffff" : "transparent"}`, color: compressQuality === q.v ? "#fff" : "rgba(255,255,255,0.6)", display: "flex", flexDirection: "column", alignItems: "center", gap: "2px" }}
                             >
                               <span style={{ fontWeight: 600 }}>{q.l}</span>
-                              <span style={{ fontSize: "0.6rem", opacity: 0.6 }}>{compressSizeMb > 0 ? `~${(compressSizeMb * (q.v === "23" ? 0.8 : q.v === "28" ? 0.5 : 0.25)).toFixed(1)}MB` : q.e}</span>
+                              <span style={{ fontSize: "0.6rem", opacity: 0.6 }}>{compressFormat !== "mp3" && compressSizeMb > 0 ? `~${(compressSizeMb * (q.v === "23" ? 0.8 : q.v === "28" ? 0.5 : 0.25)).toFixed(1)}MB` : q.e}</span>
                             </button>
                           ))}
                         </div>
                       </div>
 
-                      <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-                        <span style={{ fontSize: "0.7rem", opacity: 0.4, textTransform: "uppercase", letterSpacing: "0.5px" }}>{t.resolution_height}</span>
-                        <div style={{ display: "flex", gap: "6px", overflowX: "auto" }} className="custom-scroll pb-1">
-                          {[{v: "original", l: t.res_original}, {v: "1080", l: "1080p"}, {v: "720", l: "720p"}, {v: "480", l: "480p"}].map(r => (
-                            <button 
-                              key={r.v} 
-                              onClick={() => setCompressResolution(r.v)}
-                              style={{ flex: "1 0 auto", padding: "6px 10px", fontSize: "0.75rem", borderRadius: "6px", background: compressResolution === r.v ? "rgba(255, 255, 255, 0.3)" : "rgba(255,255,255,0.05)", border: `1px solid ${compressResolution === r.v ? "#ffffff" : "transparent"}`, color: compressResolution === r.v ? "#fff" : "rgba(255,255,255,0.6)" }}
-                            >
-                              {r.l}
-                            </button>
-                          ))}
+                      {compressFormat !== "mp3" && (
+                        <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                          <span style={{ fontSize: "0.7rem", opacity: 0.4, textTransform: "uppercase", letterSpacing: "0.5px" }}>{t.resolution_height}</span>
+                          <div style={{ display: "flex", gap: "6px", overflowX: "auto" }} className="custom-scroll pb-1">
+                            {[{v: "original", l: t.res_original}, {v: "1080", l: "1080p"}, {v: "720", l: "720p"}, {v: "480", l: "480p"}].map(r => (
+                              <button 
+                                key={r.v} 
+                                onClick={() => setCompressResolution(r.v)}
+                                style={{ flex: "1 0 auto", padding: "6px 10px", fontSize: "0.75rem", borderRadius: "6px", background: compressResolution === r.v ? "rgba(255, 255, 255, 0.3)" : "rgba(255,255,255,0.05)", border: `1px solid ${compressResolution === r.v ? "#ffffff" : "transparent"}`, color: compressResolution === r.v ? "#fff" : "rgba(255,255,255,0.6)" }}
+                              >
+                                {r.l}
+                              </button>
+                            ))}
+                          </div>
                         </div>
-                      </div>
+                      )}
                       
                       <button 
                         className="download-btn" 
@@ -944,7 +1014,7 @@ function App() {
                               <line x1="12" y1="8" x2="12" y2="16" />
                               <line x1="8" y1="12" x2="16" y2="12" />
                             </svg>
-                            {t.compress_video}
+                            {compressFormat === "mp3" ? t.convert_audio : t.compress_video}
                           </>
                         )}
                       </button>

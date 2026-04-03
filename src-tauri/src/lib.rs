@@ -219,36 +219,75 @@ async fn get_video_info(url: String) -> Result<VideoInfo, String> {
     let title = json["title"].as_str().unwrap_or("Unknown").to_string();
     let thumbnail = json["thumbnail"].as_str().unwrap_or("").to_string();
 
-    let mut formats = Vec::new();
+    let mut formats: Vec<FormatInfo> = Vec::new();
+    let mut has_audio = false;
+
     if let Some(formats_array) = json["formats"].as_array() {
         for f in formats_array {
             let vcodec = f["vcodec"].as_str().unwrap_or("none");
-            if vcodec == "none" {
+            let acodec = f["acodec"].as_str().unwrap_or("none");
+            
+            if vcodec == "none" && acodec == "none" {
                 continue;
             }
 
-            let resolution = f["resolution"].as_str().unwrap_or("?").to_string();
+            if acodec != "none" {
+                has_audio = true;
+            }
+
+            let mut resolution = f["resolution"].as_str().unwrap_or("?").to_string();
             let height = f["height"].as_u64().unwrap_or(0);
+
+            if vcodec == "none" {
+                resolution = "Audio Only".to_string();
+            }
+
+            let ext = f["ext"].as_str().unwrap_or("").to_string();
+            let filesize = f["filesize"]
+                .as_u64()
+                .or_else(|| f["filesize_approx"].as_u64());
+
+            // Deduplicate: only keep the best version of each resolution + extension
+            if let Some(existing) = formats.iter_mut().find(|fmt| fmt.height == height && fmt.ext == ext) {
+                if filesize.unwrap_or(0) > existing.filesize.unwrap_or(0) {
+                    existing.filesize = filesize;
+                    existing.format_id = f["format_id"].as_str().unwrap_or("").to_string();
+                }
+                continue;
+            }
 
             formats.push(FormatInfo {
                 format_id: f["format_id"].as_str().unwrap_or("").to_string(),
-                ext: f["ext"].as_str().unwrap_or("").to_string(),
+                ext,
                 resolution,
                 height,
-                filesize: f["filesize"]
-                    .as_u64()
-                    .or_else(|| f["filesize_approx"].as_u64()),
+                filesize,
                 vcodec: vcodec.to_string(),
             });
         }
     }
 
-    // Sort: highest resolution first, mp4 before others at same height
+    // Add virtual MP3 format if audio is available
+    if has_audio {
+        formats.push(FormatInfo {
+            format_id: "best-mp3".to_string(),
+            ext: "mp3".to_string(),
+            resolution: "Audio Only".to_string(),
+            height: 0,
+            filesize: None,
+            vcodec: "none".to_string(),
+        });
+    }
+
+    // Sort: highest resolution first, then MP4, then size
+    // Audio Only (height 0) will go to the end or beginning? Let's put at the end.
     formats.sort_by(|a, b| {
         b.height.cmp(&a.height).then_with(|| {
-            let a_mp4 = if a.ext == "mp4" { 0 } else { 1 };
-            let b_mp4 = if b.ext == "mp4" { 0 } else { 1 };
+            let a_mp4 = if a.ext == "mp4" { 0 } else if a.ext == "mp3" { 1 } else { 2 };
+            let b_mp4 = if b.ext == "mp4" { 0 } else if b.ext == "mp3" { 1 } else { 2 };
             a_mp4.cmp(&b_mp4)
+        }).then_with(|| {
+            b.filesize.unwrap_or(0).cmp(&a.filesize.unwrap_or(0))
         })
     });
 
@@ -267,6 +306,7 @@ async fn download_video(
     format_ext: String,
     format_height: u64,
     custom_path: Option<String>,
+    state: tauri::State<'_, ProcessState>,
 ) -> Result<String, String> {
     let bin_dir = binaries::get_bin_dir();
     let yt_dlp_path = if cfg!(target_os = "windows") {
@@ -300,7 +340,9 @@ async fn download_video(
         format_id.clone()
     };
 
-    let format_str = if format_ext == "mp4" {
+    let format_str = if format_height == 0 {
+        format_id.clone()
+    } else if format_ext == "mp4" {
         format!(
             "{v}+bestaudio[ext=m4a]/{v}+bestaudio/{f}+bestaudio[ext=m4a]/{f}+bestaudio/{v}/{f}/best",
             v = video_sel,
@@ -337,28 +379,68 @@ async fn download_video(
         cmd.creation_flags(0x08000000);
     }
 
-    cmd.arg("--ffmpeg-location")
-        .arg(&ffmpeg_path)
-        .arg("-f")
-        .arg(&format_str)
-        .arg("--merge-output-format")
-        .arg(&format_ext)
-        .arg("-o")
-        .arg(format!("{}/%(title)s.%(ext)s", dest_path.to_string_lossy()))
-        .arg(&url)
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped());
+    cmd.arg("--ffmpeg-location").arg(&ffmpeg_path);
+
+    cmd.stdout(std::process::Stdio::piped())
+       .stderr(std::process::Stdio::piped());
+
+    if format_id == "best-mp3" {
+        cmd.arg("-x")
+           .arg("--audio-format")
+           .arg("mp3")
+           .arg("--audio-quality")
+           .arg("0")
+           .arg("-o")
+           .arg(format!("{}/%(title)s.%(ext)s", dest_path.to_string_lossy()))
+           .arg(&url);
+    } else {
+        cmd.arg("-f").arg(&format_str);
+        
+        if format_height > 0 {
+            cmd.arg("--merge-output-format").arg(&format_ext);
+        }
+
+        cmd.arg("-o")
+           .arg(format!("{}/%(title)s.%(ext)s", dest_path.to_string_lossy()))
+           .arg(&url);
+    }
 
     let mut child = cmd.spawn().map_err(|e| e.to_string())?;
+    
+    // Capture stdout and stderr
     let stdout = child.stdout.take().unwrap();
-    let reader = std::io::BufReader::new(stdout);
+    let stderr = child.stderr.take().unwrap();
+    
+    // Store child for potential cancellation
+    {
+        let mut lock = state.0.lock().unwrap();
+        *lock = Some(child);
+    }
+
+    let app_clone = app.clone();
+    std::thread::spawn(move || {
+        use std::io::BufRead;
+        let reader = std::io::BufReader::new(stderr);
+        for line in reader.lines() {
+            if let Ok(l) = line {
+                let _ = app_clone.emit("download-log", l);
+            }
+        }
+    });
 
     use std::io::BufRead;
+    let reader = std::io::BufReader::new(stdout);
     for line in reader.lines() {
         if let Ok(l) = line {
             let _ = app.emit("download-log", l);
         }
     }
+
+    // Re-acquire child from state to wait for it
+    let mut child = {
+        let mut lock = state.0.lock().unwrap();
+        lock.take().ok_or("Download cancelado")?
+    };
 
     let status = child.wait().map_err(|e| e.to_string())?;
     if status.success() {
@@ -413,6 +495,7 @@ async fn compress_video(
     format_ext: String,
     quality_crf: String,
     resolution: String,
+    state: tauri::State<'_, ProcessState>,
 ) -> Result<String, String> {
     let bin_dir = binaries::get_bin_dir();
     let ffmpeg_path = if cfg!(target_os = "windows") {
@@ -453,29 +536,50 @@ async fn compress_video(
         cmd.creation_flags(0x08000000);
     }
 
-    let vcodec = if format_ext == "webm" { "libvpx-vp9" } else { "libx264" };
-    
     cmd.arg("-y") // Overwrite output files
        .arg("-i")
        .arg(&input_path);
        
-    if resolution != "original" {
-        // scale height to resolution, proportional width
-        cmd.arg("-vf").arg(format!("scale=-2:{}", resolution));
+    if format_ext == "mp3" {
+        let bitrate = match quality_crf.as_str() {
+            "23" => "320k",
+            "35" => "128k",
+            _ => "192k",
+        };
+        cmd.arg("-vn")
+           .arg("-c:a")
+           .arg("libmp3lame")
+           .arg("-b:a")
+           .arg(bitrate);
+    } else {
+        let vcodec = if format_ext == "webm" { "libvpx-vp9" } else { "libx264" };
+
+        if resolution != "original" {
+            // scale height to resolution, proportional width
+            cmd.arg("-vf").arg(format!("scale=-2:{}", resolution));
+        }
+
+        cmd.arg("-c:v")
+           .arg(vcodec)
+           .arg("-crf")
+           .arg(&quality_crf) // Use selected quality
+           .arg("-preset")
+           .arg("fast");
     }
 
-    cmd.arg("-c:v")
-       .arg(vcodec)
-       .arg("-crf")
-       .arg(&quality_crf) // Use selected quality
-       .arg("-preset")
-       .arg("fast")
-       .arg(&dest_path)
+    cmd.arg(&dest_path)
        .stdout(std::process::Stdio::piped())
        .stderr(std::process::Stdio::piped());
 
     let mut child = cmd.spawn().map_err(|e| e.to_string())?;
     let stderr = child.stderr.take().unwrap();
+    
+    // Store child for potential cancellation
+    {
+        let mut lock = state.0.lock().unwrap();
+        *lock = Some(child);
+    }
+
     let reader = std::io::BufReader::new(stderr);
 
     use std::io::BufRead;
@@ -485,6 +589,12 @@ async fn compress_video(
             let _ = app.emit("compress-log", l);
         }
     }
+
+    // Re-acquire child from state to wait for it
+    let mut child = {
+        let mut lock = state.0.lock().unwrap();
+        lock.take().ok_or("Compressão cancelada")?
+    };
 
     let status = child.wait().map_err(|e| e.to_string())?;
     if status.success() {
@@ -588,9 +698,24 @@ async fn download_and_open_installer(
     Ok(())
 }
 
+use std::sync::Mutex;
+struct ProcessState(Mutex<Option<std::process::Child>>);
+
+#[tauri::command]
+async fn cancel_process(state: tauri::State<'_, ProcessState>) -> Result<(), String> {
+    let mut lock = state.0.lock().unwrap();
+    if let Some(mut child) = lock.take() {
+        let _ = child.kill();
+        Ok(())
+    } else {
+        Err("Nenhum processo ativo".to_string())
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .manage(ProcessState(Mutex::new(None)))
         .plugin(tauri_plugin_autostart::Builder::new().build())
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             let _ = toggle_window(app);
@@ -659,7 +784,8 @@ pub fn run() {
             pick_video_file,
             compress_video,
             open_path,
-            download_and_open_installer
+            download_and_open_installer,
+            cancel_process
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

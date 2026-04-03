@@ -20,6 +20,12 @@ export const i18n = {
     language: "Idioma",
     video_url_placeholder: "Cole o link do vídeo aqui...",
     download_video: "Baixar Vídeo",
+    download_audio: "Baixar Áudio",
+    cancel: "Cancelar",
+    video_mp4: "Vídeo (MP4)",
+    video_webm: "Vídeo (WebM)",
+    video_other: "Outros Formatos",
+    audio_formats: "Formatos de Áudio",
     home_title: "Downloader",
     quality: "Qualidade",
     resolution: "Resolução",
@@ -48,7 +54,10 @@ export const i18n = {
     res_original: "Original",
     compress_video: "Comprimir Vídeo",
     compression_logs: "Logs de Compressão",
-    history_tab: "Histórico"
+    history_tab: "Histórico",
+    convert_audio: "Converter para Áudio",
+    audio_only: "Somente Áudio",
+    mp3_audio: "MP3 (Áudio)"
   },
   en: {
     title: "Mevideo",
@@ -69,6 +78,12 @@ export const i18n = {
     language: "Language",
     video_url_placeholder: "Paste video link here...",
     download_video: "Download Video",
+    download_audio: "Download Audio",
+    cancel: "Cancel",
+    video_mp4: "Video (MP4)",
+    video_webm: "Video (WebM)",
+    video_other: "Other Formats",
+    audio_formats: "Audio Formats",
     home_title: "Downloader",
     quality: "Quality",
     resolution: "Resolution",
@@ -97,7 +112,10 @@ export const i18n = {
     res_original: "Original",
     compress_video: "Compress Video",
     compression_logs: "Compression Logs",
-    history_tab: "History"
+    history_tab: "History",
+    convert_audio: "Convert to Audio",
+    audio_only: "Audio Only",
+    mp3_audio: "MP3 (Audio)"
   },
   es: {
     title: "Mevideo",
@@ -118,6 +136,12 @@ export const i18n = {
     language: "Idioma",
     video_url_placeholder: "Pega el enlace del video aquí...",
     download_video: "Descargar Video",
+    download_audio: "Descargar Audio",
+    cancel: "Cancelar",
+    video_mp4: "Video (MP4)",
+    video_webm: "Video (WebM)",
+    video_other: "Otros Formatos",
+    audio_formats: "Formatos de Audio",
     home_title: "Descargador",
     quality: "Calidad",
     resolution: "Resolución",
@@ -146,7 +170,10 @@ export const i18n = {
     res_original: "Original",
     compress_video: "Comprimir Video",
     compression_logs: "Registros de Compresión",
-    history_tab: "Historial"
+    history_tab: "Historial",
+    convert_audio: "Convertir a Audio",
+    audio_only: "Solo Audio",
+    mp3_audio: "MP3 (Audio)"
   }
 };
 
