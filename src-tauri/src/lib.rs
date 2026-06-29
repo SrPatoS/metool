@@ -305,6 +305,7 @@ async fn download_video(
     format_id: String,
     format_ext: String,
     format_height: u64,
+    output_format: String,
     custom_path: Option<String>,
     state: tauri::State<'_, ProcessState>,
 ) -> Result<String, String> {
@@ -362,12 +363,19 @@ async fn download_video(
         )
     };
 
+    let is_premiere_mp4 = output_format == "premiere_mp4" && format_id != "best-mp3";
+    let output_ext = if is_premiere_mp4 {
+        "MP4".to_string()
+    } else {
+        format_ext.to_uppercase()
+    };
+
     let _ = app.emit(
         "download-log",
         format!(
             "Baixando {}p {} — seletor: {}",
             format_height,
-            format_ext.to_uppercase(),
+            output_ext,
             video_sel
         ),
     );
@@ -396,7 +404,13 @@ async fn download_video(
     } else {
         cmd.arg("-f").arg(&format_str);
         
-        if format_height > 0 {
+        if is_premiere_mp4 {
+            let _ = app.emit(
+                "download-log",
+                "Após o download, o vídeo será convertido para MP4 H.264/AAC compatível com Premiere...".to_string(),
+            );
+            cmd.arg("--print").arg("after_move:filepath");
+        } else if format_height > 0 {
             cmd.arg("--merge-output-format").arg(&format_ext);
         }
 
@@ -430,8 +444,15 @@ async fn download_video(
 
     use std::io::BufRead;
     let reader = std::io::BufReader::new(stdout);
+    let mut downloaded_file: Option<String> = None;
     for line in reader.lines() {
         if let Ok(l) = line {
+            if is_premiere_mp4 {
+                let trimmed = l.trim();
+                if !trimmed.is_empty() && !trimmed.starts_with('[') {
+                    downloaded_file = Some(trimmed.to_string());
+                }
+            }
             let _ = app.emit("download-log", l);
         }
     }
@@ -444,6 +465,87 @@ async fn download_video(
 
     let status = child.wait().map_err(|e| e.to_string())?;
     if status.success() {
+        if is_premiere_mp4 {
+            let input_file = downloaded_file
+                .ok_or("Download concluído, mas o arquivo baixado não foi localizado")?;
+            let input_path = std::path::PathBuf::from(&input_file);
+            let parent = input_path
+                .parent()
+                .ok_or("Não foi possível localizar a pasta do vídeo baixado")?;
+            let stem = input_path
+                .file_stem()
+                .unwrap_or_default()
+                .to_string_lossy();
+            let output_path = parent.join(format!("{}_premiere.mp4", stem));
+
+            let _ = app.emit(
+                "download-log",
+                "Convertendo para MP4 H.264/AAC compatível com Premiere...".to_string(),
+            );
+
+            let mut convert_cmd = std::process::Command::new(&ffmpeg_path);
+            #[cfg(target_os = "windows")]
+            {
+                use std::os::windows::process::CommandExt;
+                convert_cmd.creation_flags(0x08000000);
+            }
+
+            convert_cmd
+                .arg("-y")
+                .arg("-i")
+                .arg(&input_path)
+                .arg("-map")
+                .arg("0:v:0")
+                .arg("-map")
+                .arg("0:a?")
+                .arg("-c:v")
+                .arg("libx264")
+                .arg("-preset")
+                .arg("fast")
+                .arg("-crf")
+                .arg("18")
+                .arg("-pix_fmt")
+                .arg("yuv420p")
+                .arg("-c:a")
+                .arg("aac")
+                .arg("-b:a")
+                .arg("192k")
+                .arg("-movflags")
+                .arg("+faststart")
+                .arg(&output_path)
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::piped());
+
+            let mut convert_child = convert_cmd.spawn().map_err(|e| e.to_string())?;
+            let convert_stderr = convert_child.stderr.take().unwrap();
+
+            {
+                let mut lock = state.0.lock().unwrap();
+                *lock = Some(convert_child);
+            }
+
+            let convert_reader = std::io::BufReader::new(convert_stderr);
+            for line in convert_reader.lines() {
+                if let Ok(l) = line {
+                    let _ = app.emit("download-log", l);
+                }
+            }
+
+            let mut convert_child = {
+                let mut lock = state.0.lock().unwrap();
+                lock.take().ok_or("Conversão cancelada")?
+            };
+
+            let convert_status = convert_child.wait().map_err(|e| e.to_string())?;
+            if !convert_status.success() {
+                return Err("Processo do ffmpeg falhou".to_string());
+            }
+
+            if input_path != output_path {
+                let _ = std::fs::remove_file(&input_path);
+            }
+        }
+
         let _ = app.emit("download-log", "✅ Download concluído!".to_string());
         Ok(dest_path.to_string_lossy().to_string())
     } else {

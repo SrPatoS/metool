@@ -20,7 +20,10 @@ interface FormatOption {
   ext: string;
   height: number;
   filesize?: number;
+  vcodec?: string;
 }
+
+type OutputFormat = "premiere_mp4" | "original";
 
 interface UpdateAsset {
   os: 'windows' | 'mac' | 'linux';
@@ -417,6 +420,10 @@ function App() {
   const [videoInfo, setVideoInfo] = useState<any>(null);
   const [selectedFormat, setSelectedFormat] = useState<string>("");
   const [downloadPath, setDownloadPath] = useState<string | null>(null);
+  const [outputFormat, setOutputFormat] = useState<OutputFormat>(() => {
+    const saved = localStorage.getItem("metool-output-format");
+    return saved === "original" ? "original" : "premiere_mp4";
+  });
   const [downloadProgress, setDownloadProgress] = useState<number | null>(null);
   const [compressFile, setCompressFile] = useState<string | null>(null);
   const [compressSizeMb, setCompressSizeMb] = useState<number>(0);
@@ -583,6 +590,7 @@ function App() {
         formatId: selectedFormat,
         formatExt: selFmt?.ext || "mp4",
         formatHeight: selFmt?.height ?? 0,
+        outputFormat,
         customPath: downloadPath 
       });
       // Save to history
@@ -591,7 +599,7 @@ function App() {
         title: videoInfo?.title || videoUrl,
         url: videoUrl,
         resolution: selFmt?.resolution || "",
-        ext: selFmt?.ext || "",
+        ext: selFmt?.height === 0 ? (selFmt?.ext || "") : (outputFormat === "premiere_mp4" ? "mp4" : (selFmt?.ext || "")),
         filesize: selFmt?.filesize,
         path: savedPath,
         date: new Date().toISOString(),
@@ -617,6 +625,11 @@ function App() {
       // Reset progress after a short delay so user sees 100%
       setTimeout(() => setDownloadProgress(null), 1500);
     }
+  };
+
+  const updateOutputFormat = (value: OutputFormat) => {
+    setOutputFormat(value);
+    localStorage.setItem("metool-output-format", value);
   };
 
   const hideWindow = async () => {
@@ -1066,6 +1079,36 @@ function App() {
               <button onClick={selectDownloadPath} style={{ fontSize: "0.7rem", padding: "4px 8px" }}>
                 {t.select_folder}
               </button>
+            </div>
+          </section>
+
+          <section>
+            <h2 style={{ fontSize: "0.8rem", textTransform: "uppercase", letterSpacing: "1px", opacity: 0.5, marginBottom: "10px" }}>{t.output_video_format}</h2>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
+              {([
+                { value: "premiere_mp4", label: t.output_premiere_mp4, desc: t.output_premiere_mp4_desc },
+                { value: "original", label: t.output_original, desc: t.output_original_desc },
+              ] as { value: OutputFormat; label: string; desc: string }[]).map(option => (
+                <button
+                  key={option.value}
+                  onClick={() => updateOutputFormat(option.value)}
+                  style={{
+                    padding: "10px",
+                    textAlign: "left",
+                    borderRadius: "10px",
+                    background: outputFormat === option.value ? "rgba(255,255,255,0.16)" : "rgba(255,255,255,0.02)",
+                    border: `1px solid ${outputFormat === option.value ? "rgba(255,255,255,0.5)" : "rgba(255,255,255,0.06)"}`,
+                    color: "white",
+                    cursor: "pointer",
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "4px",
+                  }}
+                >
+                  <span style={{ fontSize: "0.78rem", fontWeight: 700 }}>{option.label}</span>
+                  <span style={{ fontSize: "0.68rem", opacity: 0.5, lineHeight: 1.35 }}>{option.desc}</span>
+                </button>
+              ))}
             </div>
           </section>
 
