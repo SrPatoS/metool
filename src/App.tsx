@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { i18n, Language } from "./i18n";
 import { enable, disable, isEnabled } from "@tauri-apps/plugin-autostart";
+import { checkForUpdates, downloadAndInstallUpdate, type UpdateCheckResult } from "./lib/updates";
 
 interface DownloadEntry {
   id: string;
@@ -24,13 +25,6 @@ interface FormatOption {
 }
 
 type OutputFormat = "premiere_mp4" | "original";
-
-interface UpdateAsset {
-  os: 'windows' | 'mac' | 'linux';
-  ext: string;
-  url: string;
-  size: number;
-}
 
 function FormatSelect({
   formats,
@@ -445,44 +439,16 @@ function App() {
     { name: "yt-dlp", exists: false },
     { name: "ffmpeg", exists: false },
   ]);
-  const [updateUrl, setUpdateUrl] = useState<string | null>(null);
-  const [updateAssets, setUpdateAssets] = useState<UpdateAsset[]>([]);
+  const [updateResult, setUpdateResult] = useState<UpdateCheckResult | null>(null);
+  const [updateStatus, setUpdateStatus] = useState<"idle" | "checking" | "available" | "current" | "downloading" | "error">("idle");
 
   useEffect(() => {
     checkBinaries();
     isEnabled().then(setAutoStart).catch(console.error);
-    // Fetch app version and check for updates
     import("@tauri-apps/api/app").then(({ getVersion }) =>
-      getVersion().then((currentVersion) => {
-        setAppVersion(currentVersion);
-        fetch("https://api.github.com/repos/SrPatoS/mevideo/releases/latest")
-          .then(res => res.json())
-          .then(data => {
-            if (data.tag_name) {
-              const latestVersion = data.tag_name.replace('v', '');
-              // Safe semantic versioning check (e.g. 1.0.10 > 1.0.2)
-              if (
-                latestVersion !== currentVersion && 
-                latestVersion.localeCompare(currentVersion, undefined, { numeric: true, sensitivity: 'base' }) > 0
-              ) {
-                setUpdateUrl(data.html_url);
-                const assets = data.assets || [];
-                const parsedAssets: UpdateAsset[] = [];
-                for (const a of assets) {
-                  const name = a.name.toLowerCase();
-                  if (name.endsWith('.msi')) parsedAssets.push({ os: 'windows', ext: '.msi', url: a.browser_download_url, size: a.size });
-                  else if (name.endsWith('.exe')) parsedAssets.push({ os: 'windows', ext: '.exe', url: a.browser_download_url, size: a.size });
-                  else if (name.endsWith('.dmg')) parsedAssets.push({ os: 'mac', ext: '.dmg', url: a.browser_download_url, size: a.size });
-                  else if (name.endsWith('.deb')) parsedAssets.push({ os: 'linux', ext: '.deb', url: a.browser_download_url, size: a.size });
-                  else if (name.endsWith('.appimage')) parsedAssets.push({ os: 'linux', ext: 'AppImage', url: a.browser_download_url, size: a.size });
-                }
-                setUpdateAssets(parsedAssets);
-              }
-            }
-          })
-          .catch(() => {});
-      }).catch(() => {})
+      getVersion().then(setAppVersion).catch(() => {})
     );
+    void checkAppUpdates();
 
     const setupListener = async () => {
       try {
@@ -624,6 +590,32 @@ function App() {
       setIsLoading(null);
       // Reset progress after a short delay so user sees 100%
       setTimeout(() => setDownloadProgress(null), 1500);
+    }
+  };
+
+  const checkAppUpdates = async () => {
+    setUpdateStatus("checking");
+    try {
+      const result = await checkForUpdates();
+      setUpdateResult(result);
+      setUpdateStatus(result.hasUpdate ? "available" : "current");
+    } catch (e) {
+      console.error("Failed to check for updates:", e);
+      setUpdateStatus("error");
+    }
+  };
+
+  const installAppUpdate = async () => {
+    if (updateStatus === "downloading") return;
+    setUpdateStatus("downloading");
+    setStatus(t.downloading_update || "Baixando atualização...");
+    try {
+      const result = await downloadAndInstallUpdate();
+      setStatus(`${t.update_installer_opened || "Instalador aberto"}: ${result.version}`);
+    } catch (e) {
+      console.error("Failed to install update:", e);
+      setUpdateStatus("error");
+      setStatus(`${t.error}: ${e}`);
     }
   };
 
@@ -1299,7 +1291,7 @@ function App() {
           )}
         </div>
       </footer>
-      {updateUrl && (
+      {(updateStatus === "available" || updateStatus === "downloading") && updateResult && (
         <div style={{
           marginTop: "16px",
           padding: "16px",
@@ -1315,41 +1307,39 @@ function App() {
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <span style={{ fontSize: "0.85rem", fontWeight: 700, color: "#ffffff", display: "flex", alignItems: "center", gap: "8px" }}>
               <span style={{ width: "8px", height: "8px", borderRadius: "50%", background: "#ffffff", boxShadow: "0 0 12px #ffffff" }} />
-              Nova versão disponível!
+              {t.update_available}: v{updateResult.latestVersion}
             </span>
             <button
-              onClick={() => { import("@tauri-apps/plugin-shell").then(({ open }) => open(updateUrl)).catch(console.error); }}
+              onClick={() => { import("@tauri-apps/plugin-shell").then(({ open }) => open(updateResult.releaseUrl)).catch(console.error); }}
               style={{ fontSize: "0.7rem", padding: "4px 10px", background: "transparent", color: "rgba(255,255,255,0.5)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: "6px", cursor: "pointer" }}
             >
-              Ver no GitHub
+              {t.view_github}
             </button>
           </div>
 
-          <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", overflowX: "auto" }} className="custom-scroll">
-            {updateAssets.map((asset, idx) => {
-              const iconObj: Record<string, string> = { windows: "🪟", mac: "🍏", linux: "🐧" };
-              const icon = iconObj[asset.os] || "📦";
-              return (
-                <button
-                  key={idx}
-                  onClick={() => { invoke("download_and_open_installer", { url: asset.url, ext: asset.ext }).catch(console.error); }}
-                  style={{
-                    display: "flex", alignItems: "center", gap: "6px",
-                    fontSize: "0.75rem", padding: "8px 12px",
-                    background: "linear-gradient(135deg, rgba(255, 255, 255, 0.15) 0%, rgba(255, 255, 255, 0.15) 100%)",
-                    border: "1px solid rgba(255, 255, 255, 0.3)",
-                    borderRadius: "10px", cursor: "pointer", color: "white", flex: 1, minWidth: "100px", justifyContent: "center"
-                  }}
-                  title={asset.ext}
-                >
-                  <span style={{ fontSize: "1rem" }}>{icon}</span>
-                  <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", lineHeight: 1 }}>
-                    <span style={{ fontWeight: 600 }}>{asset.ext.toUpperCase()}</span>
-                    <span style={{ fontSize: "0.6rem", opacity: 0.6 }}>{(asset.size / 1024 / 1024).toFixed(1)} MB</span>
-                  </div>
-                </button>
-              );
-            })}
+          <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+            <p style={{ margin: 0, fontSize: "0.75rem", opacity: 0.62, lineHeight: 1.5 }}>
+              {t.update_description
+                .replace("{current}", updateResult.currentVersion)
+                .replace("{latest}", updateResult.latestVersion)}
+            </p>
+            <div style={{ display: "flex", gap: "8px" }}>
+              <button
+                onClick={installAppUpdate}
+                disabled={updateStatus === "downloading"}
+                className="download-btn"
+                style={{ flex: 1, padding: "9px 12px", fontSize: "0.78rem" }}
+              >
+                {updateStatus === "downloading" ? <><div className="spinner" />{t.downloading_update}</> : t.download_update}
+              </button>
+              <button
+                onClick={() => setUpdateStatus("idle")}
+                disabled={updateStatus === "downloading"}
+                style={{ padding: "9px 12px", fontSize: "0.72rem", opacity: 0.7 }}
+              >
+                {t.later}
+              </button>
+            </div>
           </div>
         </div>
       )}

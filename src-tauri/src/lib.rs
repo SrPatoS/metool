@@ -2,6 +2,7 @@ use tauri::Emitter;
 use tauri::Manager;
 
 mod binaries;
+mod updates;
 
 fn position_window_bottom_right(window: &tauri::WebviewWindow) {
     if let Ok(Some(monitor)) = window.primary_monitor() {
@@ -887,6 +888,7 @@ pub fn run() {
             compress_video,
             open_path,
             download_and_open_installer,
+            updates::download_and_install_update,
             cancel_process
         ])
         .run(tauri::generate_context!())

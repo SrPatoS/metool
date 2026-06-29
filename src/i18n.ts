@@ -62,7 +62,14 @@ export const i18n = {
     history_tab: "Histórico",
     convert_audio: "Converter para Áudio",
     audio_only: "Somente Áudio",
-    mp3_audio: "MP3 (Áudio)"
+    mp3_audio: "MP3 (Áudio)",
+    update_available: "Nova versão disponível",
+    update_description: "Você está usando a versão {current}. A versão {latest} já está disponível.",
+    download_update: "Baixar atualização",
+    downloading_update: "Baixando atualização...",
+    update_installer_opened: "Instalador aberto",
+    view_github: "Ver no GitHub",
+    later: "Depois"
   },
   en: {
     title: "Mevideo",
@@ -125,7 +132,14 @@ export const i18n = {
     history_tab: "History",
     convert_audio: "Convert to Audio",
     audio_only: "Audio Only",
-    mp3_audio: "MP3 (Audio)"
+    mp3_audio: "MP3 (Audio)",
+    update_available: "New version available",
+    update_description: "You are running version {current}. Version {latest} is available.",
+    download_update: "Download update",
+    downloading_update: "Downloading update...",
+    update_installer_opened: "Installer opened",
+    view_github: "View on GitHub",
+    later: "Later"
   },
   es: {
     title: "Mevideo",
@@ -188,7 +202,14 @@ export const i18n = {
     history_tab: "Historial",
     convert_audio: "Convertir a Audio",
     audio_only: "Solo Audio",
-    mp3_audio: "MP3 (Audio)"
+    mp3_audio: "MP3 (Audio)",
+    update_available: "Nueva versión disponible",
+    update_description: "Estás usando la versión {current}. La versión {latest} ya está disponible.",
+    download_update: "Descargar actualización",
+    downloading_update: "Descargando actualización...",
+    update_installer_opened: "Instalador abierto",
+    view_github: "Ver en GitHub",
+    later: "Después"
   }
 };
 
